@@ -33,4 +33,13 @@ export interface SymphonyConfig {
   enabled?: boolean;
   trackRequestSize?: boolean;
   trackResponseSize?: boolean;
+  outputDir?: string;
+}
+
+/**
+ * Interface for custom reporters
+ */
+export interface SymphonyReporter {
+  onMetricsCollected(metrics: RequestMetrics[]): void;
+  onTestComplete(summary: MetricsSummary): void;
 } 

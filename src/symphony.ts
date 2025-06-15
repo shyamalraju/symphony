@@ -1,5 +1,6 @@
 import { Page, Request, Response } from 'playwright';
-import { RequestMetrics, MetricsSummary, SymphonyConfig } from './types';
+import { RequestMetrics, MetricsSummary, SymphonyConfig, SymphonyReporter } from './types';
+import { JsonReporter } from './reporters/json-reporter';
 
 /**
  * Symphony - A performance testing extension for Playwright
@@ -10,14 +11,17 @@ export class Symphony {
   private config: SymphonyConfig;
   private static instance: Symphony;
   private isGloballyEnabled: boolean = false;
+  private reporter: SymphonyReporter;
 
   private constructor(config: SymphonyConfig = {}) {
     this.config = {
       enabled: true,
       trackRequestSize: false,
       trackResponseSize: false,
+      outputDir: 'symphony-metrics',
       ...config
     };
+    this.reporter = new JsonReporter(this.config.outputDir);
   }
 
   /**
@@ -28,6 +32,13 @@ export class Symphony {
       Symphony.instance = new Symphony(config);
     }
     return Symphony.instance;
+  }
+
+  /**
+   * Set a custom reporter
+   */
+  public setReporter(reporter: SymphonyReporter): void {
+    this.reporter = reporter;
   }
 
   /**
@@ -90,6 +101,9 @@ export class Symphony {
           metrics.responseSize = parseInt(contentLength, 10);
         }
       }
+
+      // Report metrics when a request completes
+      this.reporter.onMetricsCollected(this.getMetrics());
     }
   }
 
@@ -145,6 +159,9 @@ export class Symphony {
     if (metrics.length > 0) {
       summary.averageDuration /= metrics.length;
     }
+
+    // Report summary
+    this.reporter.onTestComplete(summary);
 
     return summary;
   }

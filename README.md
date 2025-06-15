@@ -12,6 +12,7 @@ Symphony extends Playwright with performance testing capabilities, starting with
   - Response time measurements
   - Request/response size tracking
   - Basic performance metrics collection
+  - Automatic JSON report generation
 
 ## Planned Features
 
@@ -61,6 +62,50 @@ test('second test', async ({ page }) => {
 // Option 3: Enable globally (if needed)
 // Note: This should be called before any tests are run
 await symphony.enableGlobal();
+```
+
+## Metrics Output
+
+Symphony automatically generates JSON reports in the `symphony-metrics` directory:
+
+```
+symphony-metrics/
+  ├── metrics-{timestamp}.json    # Individual request metrics
+  └── summary-{timestamp}.json    # Test summary
+```
+
+Example metrics file:
+```json
+[
+  {
+    "url": "https://example.com",
+    "method": "GET",
+    "startTime": 1678888888888,
+    "endTime": 1678888888999,
+    "duration": 111,
+    "status": 200,
+    "requestSize": 1234,
+    "responseSize": 5678
+  }
+]
+```
+
+Example summary file:
+```json
+{
+  "totalRequests": 10,
+  "averageDuration": 150,
+  "minDuration": 50,
+  "maxDuration": 300,
+  "requestsByStatus": {
+    "200": 8,
+    "404": 2
+  },
+  "requestsByMethod": {
+    "GET": 7,
+    "POST": 3
+  }
+}
 ```
 
 ## Current Metrics
