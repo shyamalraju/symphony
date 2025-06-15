@@ -9,6 +9,7 @@ A Playwright extension for performance testing and benchmarking requests and res
 - Detailed timing information
 - Request/response size tracking
 - Status code monitoring
+- Web Vitals and rendering metrics
 - JSON report generation
 
 ## Installation
@@ -17,7 +18,7 @@ A Playwright extension for performance testing and benchmarking requests and res
 npm install @symphony/playwright
 ```
 
-## Quick Start
+## Usage
 
 ### Basic Usage
 
@@ -37,6 +38,10 @@ test('my test', async ({ page }) => {
   // Get request timing metrics
   const metrics = symphony.getMetrics();
   console.log('Performance metrics:', metrics);
+
+  // Get rendering metrics
+  const renderingMetrics = await symphony.getRenderingMetrics();
+  console.log('Rendering metrics:', renderingMetrics);
 });
 ```
 
@@ -61,9 +66,9 @@ test('second test', async ({ page }) => {
 });
 ```
 
-### Optional: Configure Symphony
+### Optional Configuration
 
-You can configure Symphony by updating your `playwright.config.ts`:
+You can configure Symphony in your `playwright.config.ts`:
 
 ```typescript
 import { defineConfig } from '@playwright/test';
@@ -73,12 +78,15 @@ export default defineConfig({
   symphony: {
     outputDir: 'symphony-metrics', // Directory to store metrics
     enabled: true,                 // Enable/disable Symphony
-    verbose: true                  // Enable detailed logging
+    verbose: true,                 // Enable detailed logging
+    collectRenderingMetrics: true  // Enable web vitals collection
   }
 });
 ```
 
 ## Metrics
+
+### Network Metrics
 
 Symphony collects the following metrics for each request:
 
@@ -91,7 +99,26 @@ Symphony collects the following metrics for each request:
 - Request size
 - Response size
 - Headers
-- Timing information
+- Detailed timing information:
+  - DNS lookup
+  - Connection establishment
+  - SSL/TLS negotiation
+  - Request/response timing
+
+### Rendering Metrics
+
+Symphony also collects Web Vitals and other rendering metrics:
+
+- First Contentful Paint (FCP)
+- Largest Contentful Paint (LCP)
+- Time to Interactive (TTI)
+- DOM Content Loaded
+- Page Load Time
+- First Paint
+- First Input Delay (FID)
+- Cumulative Layout Shift (CLS)
+- Total Blocking Time (TBT)
+- Speed Index
 
 ## Reports
 
@@ -111,6 +138,7 @@ interface Symphony {
   enable(page: Page): Promise<void>;
   getMetrics(): RequestMetrics[];
   getSummary(): MetricsSummary;
+  getRenderingMetrics(): Promise<RenderingMetrics>;
 }
 ```
 
@@ -121,6 +149,7 @@ interface SymphonyConfig {
   outputDir?: string;    // Directory to store metrics
   enabled?: boolean;     // Enable/disable Symphony
   verbose?: boolean;     // Enable detailed logging
+  collectRenderingMetrics?: boolean; // Enable web vitals collection
 }
 ```
 

@@ -1,6 +1,12 @@
 import { Page, Request, Response } from 'playwright';
-import { RequestMetrics, MetricsSummary, SymphonyConfig, SymphonyReporter } from './types';
+import { RequestMetrics, MetricsSummary, SymphonyConfig, SymphonyReporter, RenderingMetrics } from './types';
 import { JsonReporter } from './reporters/json-reporter';
+
+declare global {
+  interface Window {
+    __symphony_metrics?: Record<string, number>;
+  }
+}
 
 /**
  * Symphony - A performance testing extension for Playwright
@@ -13,10 +19,16 @@ export class Symphony {
   private reporter: SymphonyReporter;
   private requestMap: Map<string, RequestMetrics> = new Map();
   private currentTestName: string = 'unknown-test';
+  private testStartTime: number = Date.now();
+  private enabled: boolean = false;
+  private page: Page | null = null;
 
   private constructor(config: SymphonyConfig = {}) {
     this.config = {
       outputDir: 'symphony-metrics',
+      enabled: true,
+      verbose: false,
+      collectRenderingMetrics: true,
       ...config
     };
     console.log('[Symphony] Initializing with config:', this.config);
@@ -45,7 +57,16 @@ export class Symphony {
    * Enable Symphony for a specific page
    */
   public async enable(page: Page, testName?: string): Promise<void> {
-    console.log('[Symphony] Enabling for page');
+    if (this.enabled) {
+      console.log('[Symphony] Already enabled');
+      return;
+    }
+
+    console.log('[Symphony] Enabling performance tracking');
+    this.enabled = true;
+    this.metrics = [];
+    this.testStartTime = Date.now();
+    this.page = page;
 
     if (testName) {
       this.currentTestName = testName;
@@ -54,60 +75,139 @@ export class Symphony {
       }
     }
 
-    // Set up request listener
-    page.on('request', (request: Request) => {
-      const url = request.url();
-      console.log('[Symphony] Tracking request start:', url);
+    // Track requests
+    page.on('request', (request: Request) => this.trackRequestStart(request));
+    page.on('response', (response: Response) => this.trackRequestEnd(response));
 
-      const metric: RequestMetrics = {
-        url,
-        method: request.method(),
-        startTime: Date.now(),
-        endTime: 0,
-        duration: 0,
-        status: 0,
-        requestSize: 0,
-        responseSize: 0
-      };
-
-      this.requestMap.set(url, metric);
-      this.metrics.push(metric);
-    });
-
-    // Set up response listener
-    page.on('response', async (response: Response) => {
-      const url = response.url();
-      console.log('[Symphony] Tracking request end:', url);
-
-      const metric = this.requestMap.get(url);
-      if (metric) {
-        metric.endTime = Date.now();
-        metric.duration = metric.endTime - metric.startTime;
-        metric.status = response.status();
-
-        // Get response size from headers
-        const contentLength = response.headers()['content-length'];
-        if (contentLength) {
-          metric.responseSize = parseInt(contentLength, 10);
-        }
-
-        console.log('[Symphony] Request completed:', {
-          url: metric.url,
-          duration: metric.duration,
-          status: metric.status,
-          responseSize: metric.responseSize
-        });
-
-        // Report metrics after each request
-        this.reporter.onMetricsCollected(this.getMetrics());
-      }
-    });
+    // Set up performance observer for rendering metrics
+    if (this.config.collectRenderingMetrics) {
+      await this.setupPerformanceObserver(page);
+    }
 
     // Set up page close listener to ensure we get the summary
     page.on('close', () => {
       console.log('[Symphony] Page closed, getting final summary');
       this.getSummary();
     });
+  }
+
+  private async setupPerformanceObserver(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      // Create a performance observer for web vitals
+      const observer = new PerformanceObserver((list) => {
+        const entries = list.getEntries();
+        entries.forEach(entry => {
+          // Store the metrics in window.__symphony_metrics
+          if (!window.__symphony_metrics) {
+            window.__symphony_metrics = {};
+          }
+          window.__symphony_metrics[entry.name] = entry.startTime;
+        });
+      });
+
+      // Observe various performance metrics
+      observer.observe({
+        entryTypes: [
+          'paint',
+          'largest-contentful-paint',
+          'first-input',
+          'layout-shift',
+          'element'
+        ]
+      });
+    });
+  }
+
+  async getRenderingMetrics(): Promise<RenderingMetrics> {
+    if (!this.enabled || !this.page) {
+      throw new Error('Symphony is not enabled');
+    }
+
+    const metrics = await this.page.evaluate(() => {
+      const perf = performance;
+      const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+      const paint = performance.getEntriesByType('paint');
+      const lcp = performance.getEntriesByType('largest-contentful-paint')[0];
+      const fid = performance.getEntriesByType('first-input')[0];
+      const cls = performance.getEntriesByType('layout-shift')
+        .reduce((sum, entry) => sum + (entry as any).value, 0);
+
+      return {
+        firstContentfulPaint: paint.find(p => p.name === 'first-contentful-paint')?.startTime || 0,
+        largestContentfulPaint: lcp?.startTime || 0,
+        timeToInteractive: nav.domInteractive - nav.fetchStart,
+        domContentLoaded: nav.domContentLoadedEventEnd - nav.fetchStart,
+        load: nav.loadEventEnd - nav.fetchStart,
+        firstPaint: paint.find(p => p.name === 'first-paint')?.startTime || 0,
+        firstInputDelay: fid?.duration || 0,
+        cumulativeLayoutShift: cls,
+        totalBlockingTime: this.calculateTotalBlockingTime(),
+        speedIndex: this.calculateSpeedIndex()
+      };
+    });
+
+    return metrics;
+  }
+
+  private calculateTotalBlockingTime(): number {
+    const longTasks = performance.getEntriesByType('longtask');
+    return longTasks.reduce((sum, task) => sum + task.duration, 0);
+  }
+
+  private calculateSpeedIndex(): number {
+    const paint = performance.getEntriesByType('paint');
+    const firstPaint = paint.find(p => p.name === 'first-paint')?.startTime || 0;
+    const lastPaint = paint[paint.length - 1]?.startTime || 0;
+    return lastPaint - firstPaint;
+  }
+
+  private trackRequestStart(request: Request): void {
+    if (!this.enabled) return;
+
+    const timing = request.timing();
+    this.metrics.push({
+      url: request.url(),
+      method: request.method(),
+      startTime: timing.startTime,
+      endTime: 0,
+      duration: 0,
+      status: 0,
+      requestSize: 0,
+      responseSize: 0,
+      headers: request.headers(),
+      timing: {
+        dnsStart: timing.domainLookupStart,
+        dnsEnd: timing.domainLookupEnd,
+        connectStart: timing.connectStart,
+        connectEnd: timing.connectEnd,
+        sslStart: timing.secureConnectionStart,
+        sslEnd: timing.connectEnd,
+        requestStart: timing.requestStart,
+        requestEnd: timing.responseStart,
+        responseStart: timing.responseStart,
+        responseEnd: timing.responseEnd
+      }
+    });
+  }
+
+  private trackRequestEnd(response: Response): void {
+    if (!this.enabled) return;
+
+    const request = response.request();
+    const timing = request.timing();
+    const metric = this.metrics.find(m => m.url === request.url() && m.method === request.method());
+
+    if (metric) {
+      metric.endTime = timing.responseEnd;
+      metric.duration = timing.responseEnd - timing.startTime;
+      metric.status = response.status();
+      metric.requestSize = request.postData()?.length || 0;
+      metric.responseSize = response.headers()['content-length'] ?
+        parseInt(response.headers()['content-length']) : 0;
+    }
+
+    // Report metrics when request completes
+    this.reporter.onMetricsCollected(this.metrics);
   }
 
   /**
@@ -166,6 +266,14 @@ export class Symphony {
     console.log('[Symphony] Clearing metrics');
     this.metrics.length = 0;
     this.requestMap.clear();
+  }
+
+  public setCurrentTestName(testName: string): void {
+    this.currentTestName = testName;
+    this.testStartTime = Date.now();
+    if (this.reporter instanceof JsonReporter) {
+      this.reporter.setCurrentTestName(testName);
+    }
   }
 }
 
