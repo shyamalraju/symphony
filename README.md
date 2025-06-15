@@ -17,9 +17,10 @@ A Playwright extension for performance testing and benchmarking requests and res
 npm install @symphony/playwright
 ```
 
-## Quick Start
+## Usage
 
 ### Basic Usage
+
 Simply import and enable Symphony in your test:
 
 ```typescript
@@ -39,13 +40,15 @@ test('my test', async ({ page }) => {
 });
 ```
 
-### Enable for Multiple Tests
-Use `beforeEach` to enable Symphony for all tests in a file:
+### Global Usage
+
+To enable Symphony for all tests in a file:
 
 ```typescript
 import { test } from '@playwright/test';
 import { symphony } from '@symphony/playwright';
 
+// Enable Symphony for all tests in this file
 test.beforeEach(async ({ page }) => {
   await symphony.enable(page);
 });
@@ -59,14 +62,12 @@ test('second test', async ({ page }) => {
 });
 ```
 
-## Optional Configuration
+### Optional Configuration
 
-### Playwright Config
-You can optionally configure Symphony in your `playwright.config.ts`:
+You can configure Symphony in your `playwright.config.ts`:
 
 ```typescript
 import { defineConfig } from '@playwright/test';
-import { Symphony } from '@symphony/playwright';
 
 export default defineConfig({
   // Your existing Playwright config
@@ -104,10 +105,10 @@ Symphony generates detailed JSON reports in the configured output directory (`sy
 
 ## API
 
-### Symphony Class
+### Symphony Instance
 
 ```typescript
-class Symphony {
+interface Symphony {
   enable(page: Page): Promise<void>;
   getMetrics(): RequestMetrics[];
   getSummary(): MetricsSummary;
