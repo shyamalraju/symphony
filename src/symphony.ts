@@ -7,20 +7,19 @@ import { JsonReporter } from './reporters/json-reporter';
  * Automatically collects request/response timing metrics
  */
 export class Symphony {
-  private metrics: Map<string, RequestMetrics> = new Map();
-  private config: SymphonyConfig;
   private static instance: Symphony;
-  private isGloballyEnabled: boolean = false;
+  private config: SymphonyConfig;
+  private metrics: RequestMetrics[] = [];
   private reporter: SymphonyReporter;
+  private requestMap: Map<string, RequestMetrics> = new Map();
+  private currentTestName: string = 'unknown-test';
 
   private constructor(config: SymphonyConfig = {}) {
     this.config = {
-      enabled: true,
-      trackRequestSize: false,
-      trackResponseSize: false,
       outputDir: 'symphony-metrics',
       ...config
     };
+    console.log('[Symphony] Initializing with config:', this.config);
     this.reporter = new JsonReporter(this.config.outputDir);
   }
 
@@ -38,131 +37,125 @@ export class Symphony {
    * Set a custom reporter
    */
   public setReporter(reporter: SymphonyReporter): void {
+    console.log('[Symphony] Setting new reporter');
     this.reporter = reporter;
-  }
-
-  /**
-   * Enable Symphony globally for all tests
-   * Note: This should be called before any tests are run
-   */
-  public async enableGlobal(): Promise<void> {
-    if (this.isGloballyEnabled) return;
-    this.isGloballyEnabled = true;
   }
 
   /**
    * Enable Symphony for a specific page
    */
-  public async enable(page: Page): Promise<void> {
-    if (!this.config.enabled) return;
+  public async enable(page: Page, testName?: string): Promise<void> {
+    console.log('[Symphony] Enabling for page');
+
+    if (testName) {
+      this.currentTestName = testName;
+      if (this.reporter instanceof JsonReporter) {
+        this.reporter.setCurrentTestName(testName);
+      }
+    }
 
     // Set up request listener
     page.on('request', (request: Request) => {
-      this.trackRequestStart(request);
+      const url = request.url();
+      console.log('[Symphony] Tracking request start:', url);
+
+      const metric: RequestMetrics = {
+        url,
+        method: request.method(),
+        startTime: Date.now(),
+        endTime: 0,
+        duration: 0,
+        status: 0,
+        requestSize: 0,
+        responseSize: 0
+      };
+
+      this.requestMap.set(url, metric);
+      this.metrics.push(metric);
     });
 
     // Set up response listener
-    page.on('response', (response: Response) => {
-      this.trackRequestEnd(response);
-    });
-  }
+    page.on('response', async (response: Response) => {
+      const url = response.url();
+      console.log('[Symphony] Tracking request end:', url);
 
-  /**
-   * Track the start of a request
-   */
-  private trackRequestStart(request: Request): void {
-    const key = this.getRequestKey(request);
-    const contentLength = request.headers()['content-length'];
-    this.metrics.set(key, {
-      url: request.url(),
-      method: request.method(),
-      startTime: Date.now(),
-      endTime: 0,
-      duration: 0,
-      status: 0,
-      requestSize: this.config.trackRequestSize && contentLength ? parseInt(contentLength, 10) : undefined
-    });
-  }
+      const metric = this.requestMap.get(url);
+      if (metric) {
+        metric.endTime = Date.now();
+        metric.duration = metric.endTime - metric.startTime;
+        metric.status = response.status();
 
-  /**
-   * Track the end of a request
-   */
-  private trackRequestEnd(response: Response): void {
-    const key = this.getRequestKey(response.request());
-    const metrics = this.metrics.get(key);
-
-    if (metrics) {
-      metrics.endTime = Date.now();
-      metrics.duration = metrics.endTime - metrics.startTime;
-      metrics.status = response.status();
-      if (this.config.trackResponseSize) {
+        // Get response size from headers
         const contentLength = response.headers()['content-length'];
         if (contentLength) {
-          metrics.responseSize = parseInt(contentLength, 10);
+          metric.responseSize = parseInt(contentLength, 10);
         }
+
+        console.log('[Symphony] Request completed:', {
+          url: metric.url,
+          duration: metric.duration,
+          status: metric.status,
+          responseSize: metric.responseSize
+        });
+
+        // Report metrics after each request
+        this.reporter.onMetricsCollected(this.getMetrics());
       }
+    });
 
-      // Report metrics when a request completes
-      this.reporter.onMetricsCollected(this.getMetrics());
-    }
-  }
-
-  /**
-   * Get a unique key for a request
-   */
-  private getRequestKey(request: Request): string {
-    return `${request.method()}-${request.url()}-${Date.now()}`;
+    // Set up page close listener to ensure we get the summary
+    page.on('close', () => {
+      console.log('[Symphony] Page closed, getting final summary');
+      this.getSummary();
+    });
   }
 
   /**
    * Get all collected metrics
    */
   public getMetrics(): RequestMetrics[] {
-    return Array.from(this.metrics.values());
-  }
-
-  /**
-   * Get metrics for a specific URL
-   */
-  public getMetricsForUrl(url: string): RequestMetrics[] {
-    return this.getMetrics().filter(metric => metric.url === url);
+    return this.metrics;
   }
 
   /**
    * Get a summary of all metrics
    */
   public getSummary(): MetricsSummary {
-    const metrics = this.getMetrics();
-    const summary: MetricsSummary = {
-      totalRequests: metrics.length,
+    console.log('[Symphony] Generating summary for test:', this.currentTestName);
+
+    const summary = {
+      totalRequests: this.metrics.length,
       averageDuration: 0,
       minDuration: Infinity,
       maxDuration: 0,
-      requestsByStatus: {},
-      requestsByMethod: {}
+      requestsByStatus: {} as Record<number, number>,
+      requestsByMethod: {} as Record<string, number>
     };
 
-    metrics.forEach(metric => {
-      // Update duration stats
-      summary.averageDuration += metric.duration;
-      summary.minDuration = Math.min(summary.minDuration, metric.duration);
-      summary.maxDuration = Math.max(summary.maxDuration, metric.duration);
+    let completedRequests = 0;
 
-      // Update status counts
-      summary.requestsByStatus[metric.status] = (summary.requestsByStatus[metric.status] || 0) + 1;
+    this.metrics.forEach(metric => {
+      if (metric.duration > 0) {  // Only include completed requests
+        completedRequests++;
+        // Duration stats
+        summary.averageDuration += metric.duration;
+        summary.minDuration = Math.min(summary.minDuration, metric.duration);
+        summary.maxDuration = Math.max(summary.maxDuration, metric.duration);
 
-      // Update method counts
-      summary.requestsByMethod[metric.method] = (summary.requestsByMethod[metric.method] || 0) + 1;
+        // Status counts
+        summary.requestsByStatus[metric.status] = (summary.requestsByStatus[metric.status] || 0) + 1;
+
+        // Method counts
+        summary.requestsByMethod[metric.method] = (summary.requestsByMethod[metric.method] || 0) + 1;
+      }
     });
 
-    // Calculate average
-    if (metrics.length > 0) {
-      summary.averageDuration /= metrics.length;
+    if (completedRequests > 0) {
+      summary.averageDuration = Math.round(summary.averageDuration / completedRequests);
     }
 
-    // Report summary
+    console.log('[Symphony] Generated summary:', summary);
     this.reporter.onTestComplete(summary);
-
     return summary;
   }
 
@@ -170,6 +163,10 @@ export class Symphony {
    * Clear all collected metrics
    */
   public clearMetrics(): void {
-    this.metrics.clear();
+    console.log('[Symphony] Clearing metrics');
+    this.metrics.length = 0;
+    this.requestMap.clear();
   }
-} 
+}
+
+export const symphony = Symphony.getInstance(); 
