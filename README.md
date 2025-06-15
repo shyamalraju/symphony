@@ -17,77 +17,64 @@ A Playwright extension for performance testing and benchmarking requests and res
 npm install @symphony/playwright
 ```
 
-## Configuration
+## Quick Start
 
-### 1. Update Playwright Config
+### Basic Usage
 
-Add Symphony to your `playwright.config.ts`:
+Simply import and enable Symphony in your test:
+
+```typescript
+import { test } from '@playwright/test';
+import { symphony } from '@symphony/playwright';
+
+test('my test', async ({ page }) => {
+  // Enable Symphony for this page
+  await symphony.enable(page);
+  
+  // Your test code here
+  await page.goto('https://example.com');
+  
+  // Get request timing metrics
+  const metrics = symphony.getMetrics();
+  console.log('Performance metrics:', metrics);
+});
+```
+
+### Enable for Multiple Tests
+
+Use `beforeEach` to enable Symphony for all tests in a file:
+
+```typescript
+import { test } from '@playwright/test';
+import { symphony } from '@symphony/playwright';
+
+test.beforeEach(async ({ page }) => {
+  await symphony.enable(page);
+});
+
+test('first test', async ({ page }) => {
+  await page.goto('https://example.com');
+});
+
+test('second test', async ({ page }) => {
+  await page.goto('https://example.org');
+});
+```
+
+### Optional: Configure Symphony
+
+You can configure Symphony by updating your `playwright.config.ts`:
 
 ```typescript
 import { defineConfig } from '@playwright/test';
-import { Symphony } from '@symphony/playwright';
 
 export default defineConfig({
-  use: {
-    // Your existing Playwright config
-  },
-  reporter: [
-    ['html'],
-    ['@symphony/playwright']
-  ],
-  // Optional: Configure Symphony
+  // Your existing Playwright config
   symphony: {
     outputDir: 'symphony-metrics', // Directory to store metrics
     enabled: true,                 // Enable/disable Symphony
     verbose: true                  // Enable detailed logging
   }
-});
-```
-
-### 2. Enable Symphony in Tests
-
-#### Global Level (Test Spec)
-Add this to the top of your test spec file to enable Symphony for all tests in that file:
-
-```typescript
-import { test as base } from '@playwright/test';
-import { Symphony } from '@symphony/playwright';
-
-// Enable Symphony for all tests in this file
-const test = base.extend({
-  symphony: async ({}, use) => {
-    const symphony = new Symphony();
-    await symphony.start();
-    await use(symphony);
-    await symphony.stop();
-  }
-});
-
-// Use the enhanced test object
-test('my test', async ({ symphony }) => {
-  // Your test code here
-});
-```
-
-#### Test Level
-For individual tests, you can enable Symphony directly in the test:
-
-```typescript
-import { test } from '@playwright/test';
-import { Symphony } from '@symphony/playwright';
-
-test('my test', async ({ page }) => {
-  // Start Symphony for this specific test
-  const symphony = new Symphony();
-  await symphony.start();
-  
-  // Your test code here
-  await page.goto('https://example.com');
-  
-  // Stop Symphony and get metrics
-  await symphony.stop();
-  const metrics = symphony.getMetrics();
-  console.log('Performance metrics:', metrics);
 });
 ```
 
@@ -117,16 +104,13 @@ Symphony generates detailed JSON reports in the configured output directory (`sy
 
 ## API
 
-### Symphony Class
+### Symphony Instance
 
 ```typescript
-class Symphony {
-  constructor(config?: SymphonyConfig);
-  start(): Promise<void>;
-  stop(): Promise<void>;
+interface Symphony {
+  enable(page: Page): Promise<void>;
   getMetrics(): RequestMetrics[];
   getSummary(): MetricsSummary;
-  setReporter(reporter: SymphonyReporter): void;
 }
 ```
 
