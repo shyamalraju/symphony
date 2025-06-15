@@ -9,6 +9,7 @@ export class Symphony {
   private metrics: Map<string, RequestMetrics> = new Map();
   private config: SymphonyConfig;
   private static instance: Symphony;
+  private isGloballyEnabled: boolean = false;
 
   private constructor(config: SymphonyConfig = {}) {
     this.config = {
@@ -27,6 +28,15 @@ export class Symphony {
       Symphony.instance = new Symphony(config);
     }
     return Symphony.instance;
+  }
+
+  /**
+   * Enable Symphony globally for all tests
+   * Note: This should be called before any tests are run
+   */
+  public async enableGlobal(): Promise<void> {
+    if (this.isGloballyEnabled) return;
+    this.isGloballyEnabled = true;
   }
 
   /**

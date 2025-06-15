@@ -28,16 +28,28 @@ npm install @symphony/playwright
 
 ## Quick Start
 
-Symphony can be enabled either globally for all tests or per individual test:
-
 ```typescript
 import { test } from '@playwright/test';
 import { symphony } from '@symphony/playwright';
 
-// Option 1: Enable globally for all tests
-symphony.enable();
+// Option 1: Enable for a specific test
+test('measure request performance', async ({ page }) => {
+  // Enable Symphony for this page
+  await symphony.enable(page);
+  
+  // Navigate to your page
+  await page.goto('https://example.com');
+  
+  // Get request timing metrics
+  const metrics = symphony.getMetrics();
+  console.log('Request metrics:', metrics);
+});
 
-// Your tests will automatically collect metrics
+// Option 2: Enable for multiple tests using beforeEach
+test.beforeEach(async ({ page }) => {
+  await symphony.enable(page);
+});
+
 test('first test', async ({ page }) => {
   await page.goto('https://example.com');
 });
@@ -46,15 +58,9 @@ test('second test', async ({ page }) => {
   await page.goto('https://example.org');
 });
 
-// Option 2: Enable per test
-test('specific test', async ({ page }) => {
-  await symphony.enable(page);
-  await page.goto('https://example.com');
-});
-
-// Get metrics at any time
-const metrics = symphony.getMetrics();
-console.log('Performance metrics:', metrics);
+// Option 3: Enable globally (if needed)
+// Note: This should be called before any tests are run
+await symphony.enableGlobal();
 ```
 
 ## Current Metrics
