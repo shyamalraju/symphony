@@ -1,25 +1,15 @@
-# symphony
-A performance testing extension for Playwright that enables request/response benchmarking.
+# Symphony
 
-## Overview
+A Playwright extension for performance testing and benchmarking requests and responses.
 
-Symphony extends Playwright with performance testing capabilities, starting with precise request/response timing and benchmarking. It provides a simple yet powerful way to measure the performance of your web applications at the network level.
+## Features
 
-## Current Features
-
-- Request/response timing and benchmarking
-  - Precise timing of network requests
-  - Response time measurements
-  - Request/response size tracking
-  - Basic performance metrics collection
-  - Automatic JSON report generation
-
-## Planned Features
-
-- Load generation and virtual user simulation
-- Real-time performance monitoring
-- Comprehensive reporting and analysis
-- CI/CD integration capabilities
+- Automatic request/response tracking
+- Performance metrics collection
+- Detailed timing information
+- Request/response size tracking
+- Status code monitoring
+- JSON report generation
 
 ## Installation
 
@@ -27,111 +17,133 @@ Symphony extends Playwright with performance testing capabilities, starting with
 npm install @symphony/playwright
 ```
 
-## Quick Start
+## Configuration
+
+### 1. Update Playwright Config
+
+Add Symphony to your `playwright.config.ts`:
+
+```typescript
+import { defineConfig } from '@playwright/test';
+import { Symphony } from '@symphony/playwright';
+
+export default defineConfig({
+  use: {
+    // Your existing Playwright config
+  },
+  reporter: [
+    ['html'],
+    ['@symphony/playwright']
+  ],
+  // Optional: Configure Symphony
+  symphony: {
+    outputDir: 'symphony-metrics', // Directory to store metrics
+    enabled: true,                 // Enable/disable Symphony
+    verbose: true                  // Enable detailed logging
+  }
+});
+```
+
+### 2. Enable Symphony in Tests
+
+#### Global Level (Test Spec)
+Add this to the top of your test spec file to enable Symphony for all tests in that file:
+
+```typescript
+import { test as base } from '@playwright/test';
+import { Symphony } from '@symphony/playwright';
+
+// Enable Symphony for all tests in this file
+const test = base.extend({
+  symphony: async ({}, use) => {
+    const symphony = new Symphony();
+    await symphony.start();
+    await use(symphony);
+    await symphony.stop();
+  }
+});
+
+// Use the enhanced test object
+test('my test', async ({ symphony }) => {
+  // Your test code here
+});
+```
+
+#### Test Level
+For individual tests, you can enable Symphony directly in the test:
 
 ```typescript
 import { test } from '@playwright/test';
-import { symphony } from '@symphony/playwright';
+import { Symphony } from '@symphony/playwright';
 
-// Option 1: Enable for a specific test
-test('measure request performance', async ({ page }) => {
-  // Enable Symphony for this page
-  await symphony.enable(page);
+test('my test', async ({ page }) => {
+  // Start Symphony for this specific test
+  const symphony = new Symphony();
+  await symphony.start();
   
-  // Navigate to your page
+  // Your test code here
   await page.goto('https://example.com');
   
-  // Get request timing metrics
+  // Stop Symphony and get metrics
+  await symphony.stop();
   const metrics = symphony.getMetrics();
-  console.log('Request metrics:', metrics);
+  console.log('Performance metrics:', metrics);
 });
-
-// Option 2: Enable for multiple tests using beforeEach
-test.beforeEach(async ({ page }) => {
-  await symphony.enable(page);
-});
-
-test('first test', async ({ page }) => {
-  await page.goto('https://example.com');
-});
-
-test('second test', async ({ page }) => {
-  await page.goto('https://example.org');
-});
-
-// Option 3: Enable globally (if needed)
-// Note: This should be called before any tests are run
-await symphony.enableGlobal();
 ```
 
-## Metrics Output
+## Metrics
 
-Symphony automatically generates JSON reports in the `symphony-metrics` directory:
+Symphony collects the following metrics for each request:
 
-```
-symphony-metrics/
-  ├── metrics-{timestamp}.json    # Individual request metrics
-  └── summary-{timestamp}.json    # Test summary
-```
+- URL
+- Method
+- Start time
+- End time
+- Duration
+- Status code
+- Request size
+- Response size
+- Headers
+- Timing information
 
-Example metrics file:
-```json
-[
-  {
-    "url": "https://example.com",
-    "method": "GET",
-    "startTime": 1678888888888,
-    "endTime": 1678888888999,
-    "duration": 111,
-    "status": 200,
-    "requestSize": 1234,
-    "responseSize": 5678
-  }
-]
-```
+## Reports
 
-Example summary file:
-```json
-{
-  "totalRequests": 10,
-  "averageDuration": 150,
-  "minDuration": 50,
-  "maxDuration": 300,
-  "requestsByStatus": {
-    "200": 8,
-    "404": 2
-  },
-  "requestsByMethod": {
-    "GET": 7,
-    "POST": 3
-  }
+Symphony generates detailed JSON reports in the configured output directory (`symphony-metrics` by default). Each test run creates a new session directory with:
+
+- Individual test metrics
+- Test summaries
+- Session summary
+- README with environment information
+
+## API
+
+### Symphony Class
+
+```typescript
+class Symphony {
+  constructor(config?: SymphonyConfig);
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  getMetrics(): RequestMetrics[];
+  getSummary(): MetricsSummary;
+  setReporter(reporter: SymphonyReporter): void;
 }
 ```
 
-## Current Metrics
+### Configuration Options
 
-Symphony currently captures the following metrics for each request:
-
-- **Request Timing**: 
-  - Start time
-  - End time
-  - Total duration
-- **Request Details**:
-  - URL
-  - Method
-  - Status code
-  - Request/response sizes
-
-## Documentation
-
-- [Architecture Overview](ARCHITECTURE.md) - Detailed architecture and implementation roadmap
-- [Getting Started](docs/getting-started.md) - Coming soon
-- [API Reference](docs/api.md) - Coming soon
+```typescript
+interface SymphonyConfig {
+  outputDir?: string;    // Directory to store metrics
+  enabled?: boolean;     // Enable/disable Symphony
+  verbose?: boolean;     // Enable detailed logging
+}
+```
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details
+MIT
