@@ -68,13 +68,17 @@ test('second test', async ({ page }) => {
 
 ### Optional Configuration
 
-You can configure Symphony in your `playwright.config.ts`:
+You can configure Symphony in your `playwright.config.ts`. First, make sure to import the types:
 
 ```typescript
 import { defineConfig } from '@playwright/test';
+import '@symphony/playwright/playwright'; // This imports the type declarations
 
 export default defineConfig({
-  // Your existing Playwright config
+  use: {
+    // Your existing Playwright config
+  },
+  // Symphony configuration
   symphony: {
     outputDir: 'symphony-metrics', // Directory to store metrics
     enabled: true,                 // Enable/disable Symphony
