@@ -1,4 +1,4 @@
-import { Request, Response, Page } from 'playwright';
+import { Request, Response } from 'playwright';
 
 /**
  * Represents the metrics collected for a single request
@@ -10,21 +10,8 @@ export interface RequestMetrics {
   endTime: number;
   duration: number;
   status: number;
-  requestSize: number;
-  responseSize: number;
-  headers: Record<string, string>;
-  timing: {
-    dnsStart: number;
-    dnsEnd: number;
-    connectStart: number;
-    connectEnd: number;
-    sslStart: number;
-    sslEnd: number;
-    requestStart: number;
-    requestEnd: number;
-    responseStart: number;
-    responseEnd: number;
-  };
+  requestSize?: number;
+  responseSize?: number;
 }
 
 /**
@@ -37,17 +24,16 @@ export interface MetricsSummary {
   maxDuration: number;
   requestsByStatus: Record<number, number>;
   requestsByMethod: Record<string, number>;
-  renderingMetrics?: RenderingMetrics;
 }
 
 /**
  * Configuration options for the Symphony extension
  */
 export interface SymphonyConfig {
-  outputDir?: string;
   enabled?: boolean;
-  verbose?: boolean;
-  collectRenderingMetrics?: boolean;
+  trackRequestSize?: boolean;
+  trackResponseSize?: boolean;
+  outputDir?: string;
 }
 
 /**
@@ -56,24 +42,4 @@ export interface SymphonyConfig {
 export interface SymphonyReporter {
   onMetricsCollected(metrics: RequestMetrics[]): void;
   onTestComplete(summary: MetricsSummary): void;
-}
-
-export interface RenderingMetrics {
-  firstContentfulPaint: number;
-  largestContentfulPaint: number;
-  timeToInteractive: number;
-  domContentLoaded: number;
-  load: number;
-  firstPaint: number;
-  firstInputDelay: number;
-  cumulativeLayoutShift: number;
-  totalBlockingTime: number;
-  speedIndex: number;
-}
-
-export interface Symphony {
-  enable(page: Page): Promise<void>;
-  getMetrics(): RequestMetrics[];
-  getSummary(): MetricsSummary;
-  getRenderingMetrics(): Promise<RenderingMetrics>;
 } 
