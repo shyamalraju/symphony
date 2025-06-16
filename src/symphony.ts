@@ -1,6 +1,8 @@
+
 import { Page, Request, Response } from 'playwright';
 import { RequestMetrics, MetricsSummary, SymphonyConfig, SymphonyReporter } from './types';
 import { JsonReporter } from './reporters/json-reporter';
+import { HtmlReporter } from './reporters/html-reporter';
 
 /**
  * Symphony - A performance testing extension for Playwright
@@ -10,9 +12,11 @@ export class Symphony {
   private static instance: Symphony;
   private config: SymphonyConfig;
   private metrics: RequestMetrics[] = [];
-  private reporter: SymphonyReporter;
+  private jsonReporter: JsonReporter;
+  private htmlReporter: HtmlReporter;
   private requestMap: Map<string, RequestMetrics> = new Map();
   private currentTestName: string = 'unknown-test';
+  private sessionDir: string | null = null;
 
   private constructor(config: SymphonyConfig = {}) {
     this.config = {
@@ -20,25 +24,44 @@ export class Symphony {
       ...config
     };
     console.log('[Symphony] Initializing with config:', this.config);
-    this.reporter = new JsonReporter(this.config.outputDir);
+    this.htmlReporter = new HtmlReporter(this.config.outputDir);
+    this.jsonReporter = new JsonReporter(this.config.outputDir, (dir) => {
+      this.sessionDir = dir;
+      this.htmlReporter.setSessionDir(dir);
+    });
   }
 
   /**
    * Get the singleton instance of Symphony
    */
-  public static getInstance(config?: SymphonyConfig): Symphony {
+  public static getInstance(config: SymphonyConfig = {}): Symphony {
     if (!Symphony.instance) {
       Symphony.instance = new Symphony(config);
     }
     return Symphony.instance;
   }
 
-  /**
-   * Set a custom reporter
-   */
-  public setReporter(reporter: SymphonyReporter): void {
-    console.log('[Symphony] Setting new reporter');
-    this.reporter = reporter;
+  public setCurrentTestName(testName: string) {
+    this.currentTestName = testName;
+    this.jsonReporter.setCurrentTestName(testName);
+    this.htmlReporter.setCurrentTestName(testName);
+  }
+
+  public setSessionDir(sessionDir: string) {
+    this.sessionDir = sessionDir;
+    this.jsonReporter.sessionDir = sessionDir;
+    this.htmlReporter.setSessionDir(sessionDir);
+  }
+
+  public onMetricsCollected(metrics: RequestMetrics[]): void {
+    this.metrics = metrics;
+    this.jsonReporter.onMetricsCollected(metrics);
+    this.htmlReporter.onMetricsCollected(metrics);
+  }
+
+  public onTestComplete(summary: MetricsSummary): void {
+    this.jsonReporter.onTestComplete(summary);
+    this.htmlReporter.onTestComplete(summary);
   }
 
   /**
@@ -49,8 +72,11 @@ export class Symphony {
 
     if (testName) {
       this.currentTestName = testName;
-      if (this.reporter instanceof JsonReporter) {
-        this.reporter.setCurrentTestName(testName);
+      if (this.jsonReporter instanceof JsonReporter) {
+        this.jsonReporter.setCurrentTestName(testName);
+      }
+      if (this.htmlReporter instanceof HtmlReporter) {
+        this.htmlReporter.setCurrentTestName(testName);
       }
     }
 
@@ -59,19 +85,21 @@ export class Symphony {
       const url = request.url();
       console.log('[Symphony] Tracking request start:', url);
 
-      const metric: RequestMetrics = {
-        url,
-        method: request.method(),
-        startTime: Date.now(),
-        endTime: 0,
-        duration: 0,
-        status: 0,
-        requestSize: 0,
-        responseSize: 0
-      };
-
-      this.requestMap.set(url, metric);
-      this.metrics.push(metric);
+      // Only add a new metric if the URL is not already in the requestMap
+      if (!this.requestMap.has(url)) {
+        const metric: RequestMetrics = {
+          url,
+          method: request.method(),
+          startTime: Date.now(),
+          endTime: 0,
+          duration: 0,
+          status: 0,
+          requestSize: 0,
+          responseSize: 0
+        };
+        this.requestMap.set(url, metric);
+        this.metrics.push(metric);
+      }
     });
 
     // Set up response listener
@@ -99,7 +127,7 @@ export class Symphony {
         });
 
         // Report metrics after each request
-        this.reporter.onMetricsCollected(this.getMetrics());
+        this.onMetricsCollected(this.getMetrics());
       }
     });
 
@@ -155,7 +183,7 @@ export class Symphony {
     }
 
     console.log('[Symphony] Generated summary:', summary);
-    this.reporter.onTestComplete(summary);
+    this.onTestComplete(summary);
     return summary;
   }
 

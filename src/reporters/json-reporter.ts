@@ -7,17 +7,18 @@ import { chromium, firefox, webkit } from 'playwright';
  * Default JSON reporter that saves metrics to files
  */
 export class JsonReporter implements SymphonyReporter {
-  private outputDir: string;
+  public outputDir: string;
   private currentTestName: string = 'unknown-test';
   private currentMetrics: RequestMetrics[] = [];
   private testStartTime: number = Date.now();
-  private sessionDir: string | null = null;
+  public sessionDir: string | null = null;
   private sessionMetrics: Map<string, { metrics: RequestMetrics[], summary: MetricsSummary }> = new Map();
+  private sessionDirCallback?: (dir: string) => void;
 
-  constructor(outputDir: string = 'symphony-metrics') {
-    // Convert to absolute path
+  constructor(outputDir: string = 'symphony-metrics', sessionDirCallback?: (dir: string) => void) {
     this.outputDir = path.resolve(process.cwd(), outputDir);
     this.ensureOutputDir();
+    this.sessionDirCallback = sessionDirCallback;
     console.log('[JsonReporter] Initialized with output directory:', this.outputDir);
   }
 
@@ -85,6 +86,9 @@ The summary files contain aggregated statistics:
 `;
       fs.writeFileSync(path.join(this.sessionDir, 'README.md'), readmeContent);
       console.log('[JsonReporter] Created session directory:', this.sessionDir);
+      if (this.sessionDirCallback) {
+        this.sessionDirCallback(this.sessionDir);
+      }
     }
   }
 
