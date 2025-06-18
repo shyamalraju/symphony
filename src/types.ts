@@ -41,5 +41,18 @@ export interface SymphonyConfig {
  */
 export interface SymphonyReporter {
   onMetricsCollected(metrics: RequestMetrics[]): void;
-  onTestComplete(summary: MetricsSummary): void;
+  onTestComplete(summary: MetricsSummary, testInfo: any): void;
+}
+
+/**
+ * Represents the test information passed to Symphony
+ */
+export interface TestInfo {
+  title: string;
+  fileName?: string;
+  project?: string;
+  tags?: string[];
+  annotations?: Record<string, any>;
+  status?: string;
+  duration?: number;
 } 

@@ -297,4 +297,11 @@ The summary files contain aggregated statistics:
     this.currentTestName = testName;
     this.testStartTime = Date.now(); // Reset the test start time
   }
+
+  public setCurrentTestInfo(testInfo: any) {
+    console.log(`[JsonReporter] Setting current test info:`, testInfo);
+    this.currentTestName = testInfo.title;
+    this.testStartTime = Date.now(); // Reset the test start time
+    // Store additional testInfo properties as needed
+  }
 } 

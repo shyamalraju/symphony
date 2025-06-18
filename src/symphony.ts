@@ -1,4 +1,3 @@
-
 import { Page, Request, Response } from 'playwright';
 import { RequestMetrics, MetricsSummary, SymphonyConfig, SymphonyReporter } from './types';
 import { JsonReporter } from './reporters/json-reporter';
@@ -17,6 +16,7 @@ export class Symphony {
   private requestMap: Map<string, RequestMetrics> = new Map();
   private currentTestName: string = 'unknown-test';
   private sessionDir: string | null = null;
+  private currentTestInfo: any;
 
   private constructor(config: SymphonyConfig = {}) {
     this.config = {
@@ -61,23 +61,25 @@ export class Symphony {
 
   public onTestComplete(summary: MetricsSummary): void {
     this.jsonReporter.onTestComplete(summary);
-    this.htmlReporter.onTestComplete(summary);
+    this.htmlReporter.onTestComplete(summary, this.currentTestInfo);
   }
 
   /**
    * Enable Symphony for a specific page
    */
-  public async enable(page: Page, testName?: string): Promise<void> {
+  public async enable(page: Page, testInfo: any): Promise<void> {
     console.log('[Symphony] Enabling for page');
 
-    if (testName) {
-      this.currentTestName = testName;
+    if (testInfo) {
+      this.currentTestName = testInfo.title;
       if (this.jsonReporter instanceof JsonReporter) {
-        this.jsonReporter.setCurrentTestName(testName);
+        this.jsonReporter.setCurrentTestInfo(testInfo);
       }
       if (this.htmlReporter instanceof HtmlReporter) {
-        this.htmlReporter.setCurrentTestName(testName);
+        this.htmlReporter.setCurrentTestInfo(testInfo);
       }
+      this.currentTestInfo = testInfo;
+      console.log('[Symphony] Test Info:', testInfo);
     }
 
     // Set up request listener
