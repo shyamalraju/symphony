@@ -1,4 +1,3 @@
-
 /**
  * HtmlReporter
  *
@@ -357,12 +356,10 @@ export class HtmlReporter implements SymphonyReporter {
     <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
       <div class="border-b border-gray-800 p-4">
         <h3 class="text-xl font-bold text-gray-300">Request Timeline</h3>
-        <p class="text-sm text-gray-400 mt-1">Visual timeline of HTTP requests showing start times, durations, and overlaps</p>
       </div>
       <div class="p-4">
-        <div id="gantt-chart" class="w-full overflow-x-auto">
-          ${this.generateGanttChart(metrics)}
-        </div>
+        <canvas id="ganttChart" width="800" height="400" class="w-full border border-gray-700 rounded"></canvas>
+        <div id="tooltip" class="absolute bg-gray-800 text-white p-2 rounded shadow-lg text-sm hidden z-10 border border-gray-600"></div>
       </div>
     </div>
 
@@ -389,6 +386,387 @@ export class HtmlReporter implements SymphonyReporter {
       </div>
     </div>
   </div>
+
+  <script>
+    // Gantt Chart Implementation
+    const canvas = document.getElementById('ganttChart');
+    const ctx = canvas.getContext('2d');
+    const tooltip = document.getElementById('tooltip');
+    
+    // Set canvas size based on container
+    function resizeCanvas() {
+      const container = canvas.parentElement;
+      const rect = container.getBoundingClientRect();
+      canvas.width = rect.width - 32; // Account for padding
+      canvas.height = Math.max(300, metrics.length * 40 + 80); // Dynamic height based on request count
+    }
+    
+    // Request data
+    const metrics = ${JSON.stringify(metrics.map(m => ({
+        url: m.url,
+        method: m.method,
+        startTime: m.startTime,
+        endTime: m.endTime,
+        duration: m.duration,
+        status: m.status
+      })))};
+    
+    // Chart configuration
+    const chartPadding = { top: 80, right: 50, bottom: 50, left: 50 }; // Increased top padding for title and timeline
+    let chartWidth, chartHeight;
+    let hoveredMetricIndex = -1;
+    
+    // Calculate time range
+    const minTime = Math.min(...metrics.map(m => m.startTime));
+    const maxTime = Math.max(...metrics.map(m => m.endTime));
+    const timeRange = maxTime - minTime;
+    
+    // Colors for different HTTP methods
+    const methodColors = {
+      'GET': '#4CAF50',
+      'POST': '#2196F3', 
+      'PUT': '#FF9800',
+      'DELETE': '#F44336',
+      'PATCH': '#9C27B0',
+      'HEAD': '#607D8B',
+      'OPTIONS': '#795548'
+    };
+    
+    function drawChart() {
+      resizeCanvas();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      chartWidth = canvas.width - chartPadding.left - chartPadding.right;
+      chartHeight = canvas.height - chartPadding.top - chartPadding.bottom;
+      
+      // Draw background
+      ctx.fillStyle = '#1a202c';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw guiding intervals (vertical grid lines)
+      drawGuidingIntervals();
+      
+      // Draw time axes (top and bottom)
+      drawTimeAxis();
+      
+      // Draw request bars
+      metrics.forEach((metric, index) => {
+        drawRequestBar(metric, index, index === hoveredMetricIndex);
+      });
+      
+      // Draw mouse guide line
+      drawMouseGuide();
+    }
+    
+    function drawTimeAxis() {
+      const bottomY = chartPadding.top + chartHeight + 10;
+      const topY = chartPadding.top - 10;
+      
+      // Draw timeline background (transparent strip)
+      ctx.fillStyle = 'rgba(74, 85, 104, 0.1)'; // Very transparent background
+      ctx.fillRect(chartPadding.left, topY - 25, chartWidth, 35); // Top timeline background
+      ctx.fillRect(chartPadding.left, bottomY, chartWidth, 35); // Bottom timeline background
+      
+      // Draw bottom axis line
+      ctx.strokeStyle = '#4a5568';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(chartPadding.left, bottomY);
+      ctx.lineTo(chartPadding.left + chartWidth, bottomY);
+      ctx.stroke();
+      
+      // Draw top axis line
+      ctx.beginPath();
+      ctx.moveTo(chartPadding.left, topY);
+      ctx.lineTo(chartPadding.left + chartWidth, topY);
+      ctx.stroke();
+      
+      const numTicks = 5;
+      for (let i = 0; i <= numTicks; i++) {
+        const relativeTime = (timeRange * i / numTicks);
+        const x = chartPadding.left + (chartWidth * i / numTicks);
+        
+        // Draw bottom ticks
+        ctx.strokeStyle = '#4a5568';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, bottomY);
+        ctx.lineTo(x, bottomY + 5);
+        ctx.stroke();
+        
+        // Draw top ticks
+        ctx.beginPath();
+        ctx.moveTo(x, topY);
+        ctx.lineTo(x, topY - 5);
+        ctx.stroke();
+        
+        // Create timeline labels (simple text, no background boxes)
+        const timeStr = '+' + Math.round(relativeTime) + 'ms';
+        
+        // Draw bottom timeline labels
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '11px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(timeStr, x, bottomY + 18);
+        
+        // Draw top timeline labels
+        ctx.fillText(timeStr, x, topY - 12);
+      }
+      
+      // Draw test start guideline (yellow)
+      ctx.strokeStyle = '#fbbf24'; // Yellow
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(chartPadding.left, chartPadding.top);
+      ctx.lineTo(chartPadding.left, chartPadding.top + chartHeight);
+      ctx.stroke();
+      
+      // Draw test end guideline (blue)
+      ctx.strokeStyle = '#3b82f6'; // Blue
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(chartPadding.left + chartWidth, chartPadding.top);
+      ctx.lineTo(chartPadding.left + chartWidth, chartPadding.top + chartHeight);
+      ctx.stroke();
+      
+      // Reset line dash for other drawings
+      ctx.setLineDash([]);
+    }
+    
+    function drawGuidingIntervals() {
+      // Draw subtle vertical grid lines at regular intervals
+      const numIntervals = 10; // More intervals for finer grid
+      ctx.strokeStyle = 'rgba(156, 163, 175, 0.2)'; // Very subtle gray lines
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 4]); // Dotted lines
+      
+      for (let i = 1; i < numIntervals; i++) { // Skip first and last (they're the guidelines)
+        const x = chartPadding.left + (chartWidth * i / numIntervals);
+        ctx.beginPath();
+        ctx.moveTo(x, chartPadding.top);
+        ctx.lineTo(x, chartPadding.top + chartHeight);
+        ctx.stroke();
+      }
+      
+      ctx.setLineDash([]); // Reset line dash
+    }
+    
+    function drawRequestBar(metric, index, isHovered = false) {
+      const y = chartPadding.top + (index * 35) + 10;
+      const barHeight = 25;
+      const borderRadius = 4;
+      
+      // Calculate bar position and width
+      const startX = chartPadding.left + ((metric.startTime - minTime) / timeRange) * chartWidth;
+      const endX = chartPadding.left + ((metric.endTime - minTime) / timeRange) * chartWidth;
+      const barWidth = Math.max(endX - startX, 2); // Minimum width of 2px
+      
+      // Get color based on HTTP method
+      const color = methodColors[metric.method] || '#6b7280';
+      
+      // Adjust opacity based on hover state (dialed back by 5%)
+      const baseOpacity = isHovered ? 'FF' : '8A'; // 100% opacity on hover, 65% normally (5% less opaque)
+      
+      // Draw rounded bar background
+      ctx.fillStyle = color + baseOpacity;
+      drawRoundedRect(ctx, startX, y, barWidth, barHeight, borderRadius, true, false);
+      
+      // Draw rounded bar border (darker on hover)
+      ctx.strokeStyle = isHovered ? color : color + 'CC'; // Full opacity on hover, slightly transparent normally
+      ctx.lineWidth = isHovered ? 2 : 1; // Thicker border on hover
+      drawRoundedRect(ctx, startX, y, barWidth, barHeight, borderRadius, false, true);
+      
+      // No left panel labels - all info available in tooltip
+      
+      // Store bar info for hover detection
+      metric._barInfo = { x: startX, y, width: barWidth, height: barHeight };
+    }
+    
+    // Helper function to draw rounded rectangles
+    function drawRoundedRect(ctx, x, y, width, height, radius, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+      
+      if (fill) {
+        ctx.fill();
+      }
+      if (stroke) {
+        ctx.stroke();
+      }
+    }
+    
+
+    
+    // Mouse event handlers
+    let mouseGuideX = -1;
+    
+    function drawMouseGuide() {
+      if (mouseGuideX >= chartPadding.left && mouseGuideX <= chartPadding.left + chartWidth) {
+        // Draw vertical white guide line (solid)
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(mouseGuideX, chartPadding.top);
+        ctx.lineTo(mouseGuideX, chartPadding.top + chartHeight);
+        ctx.stroke();
+      }
+    }
+    
+    // Create timeline tooltip
+    const timelineTooltip = document.createElement('div');
+    timelineTooltip.style.position = 'absolute';
+    timelineTooltip.style.background = '#1f2937'; // bg-800
+    timelineTooltip.style.color = '#ffffff'; // white text
+    timelineTooltip.style.padding = '8px 12px';
+    timelineTooltip.style.borderRadius = '6px';
+    timelineTooltip.style.fontSize = '12px';
+    timelineTooltip.style.fontFamily = 'monospace';
+    timelineTooltip.style.border = '1px solid #374151';
+    timelineTooltip.style.pointerEvents = 'none';
+    timelineTooltip.style.zIndex = '1001';
+    timelineTooltip.style.display = 'none';
+    timelineTooltip.style.whiteSpace = 'nowrap';
+    timelineTooltip.style.transition = 'none'; // Remove any transitions
+    
+    // Create animated pointer
+    const timelinePointer = document.createElement('div');
+    timelinePointer.style.position = 'absolute';
+    timelinePointer.style.color = '#ffffff'; // White color
+    timelinePointer.style.fontSize = '16px';
+    timelinePointer.style.pointerEvents = 'none';
+    timelinePointer.style.zIndex = '1000';
+    timelinePointer.style.display = 'none';
+    timelinePointer.style.textAlign = 'center';
+    timelinePointer.style.width = '20px';
+    timelinePointer.style.marginLeft = '-10px'; // Center the pointer
+    timelinePointer.innerHTML = '▼';
+    
+    // Keep pointer simple without animations
+    timelinePointer.style.opacity = '0.8';
+    
+    document.body.appendChild(timelineTooltip);
+    document.body.appendChild(timelinePointer);
+    
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      
+      // Always update mouse guide position
+      mouseGuideX = mouseX;
+      
+      let hoveredMetric = null;
+      let newHoveredIndex = -1;
+      
+      // Check if mouse is over any request bar
+      metrics.forEach((metric, index) => {
+        if (metric._barInfo) {
+          const { x, y, width, height } = metric._barInfo;
+          if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
+            hoveredMetric = metric;
+            newHoveredIndex = index;
+          }
+        }
+      });
+      
+      // Show timeline tooltip when hovering over a gantt bar
+      if (hoveredMetric && mouseX >= chartPadding.left && mouseX <= chartPadding.left + chartWidth) {
+        // Calculate the time at mouse position with high precision
+        const relativeTime = ((mouseX - chartPadding.left) / chartWidth) * timeRange;
+        const absoluteTime = minTime + relativeTime;
+        
+        // Format relative duration (rounded to nearest millisecond)
+        const relativeDuration = Math.round(relativeTime);
+        const relativeDurationStr = \`+\${relativeDuration}ms\`;
+        
+        // Use same logic as formatLocalTime method for consistent precision
+        const d = new Date(absoluteTime);
+        const ms = d.getMilliseconds().toString().padStart(3, '0');
+        const formattedAbsoluteTime = d.toLocaleString().replace(/(\d+:\d+:\d+)/, \`$1.$\{ms}\`);
+        
+        // Combine both formats
+        const combinedTime = \`\${relativeDurationStr}, \${formattedAbsoluteTime}\`;
+        
+        // Show timeline tooltip and pointer
+        timelineTooltip.style.display = 'block';
+        timelinePointer.style.display = 'block';
+        timelineTooltip.textContent = combinedTime;
+        
+        // Position pointer just above the gantt bar
+        const pointerTop = rect.top + hoveredMetric._barInfo.y - 25; // 25px above bar
+        timelinePointer.style.left = e.pageX + 'px';
+        timelinePointer.style.top = (pointerTop + window.scrollY) + 'px';
+        
+        // Position tooltip above the pointer
+        const tooltipTop = rect.top + hoveredMetric._barInfo.y - 60; // 60px above bar (35px above pointer)
+        timelineTooltip.style.left = (e.pageX - 60) + 'px'; // Center on mouse
+        timelineTooltip.style.top = (tooltipTop + window.scrollY) + 'px';
+      } else {
+        timelineTooltip.style.display = 'none';
+        timelinePointer.style.display = 'none';
+      }
+      
+      // Always redraw to update mouse guide
+      if (newHoveredIndex !== hoveredMetricIndex) {
+        hoveredMetricIndex = newHoveredIndex;
+      }
+      drawChart();
+      
+      if (hoveredMetric) {
+        // Show tooltip just below the gantt bar with padding
+        tooltip.style.display = 'block';
+        const rect = canvas.getBoundingClientRect();
+        const barBottom = rect.top + hoveredMetric._barInfo.y + hoveredMetric._barInfo.height + 10; // 10px padding below bar
+        tooltip.style.left = (e.pageX + 10) + 'px';
+        tooltip.style.top = (barBottom + window.scrollY) + 'px';
+        
+        const startTime = new Date(hoveredMetric.startTime).toLocaleTimeString();
+        const endTime = new Date(hoveredMetric.endTime).toLocaleTimeString();
+        tooltip.innerHTML = \`
+          <div class="font-bold">\${hoveredMetric.method} \${hoveredMetric.status}</div>
+          <div class="mt-1">\${hoveredMetric.url}</div>
+          <div class="mt-1 text-xs text-gray-300">
+            <div>Duration: \${hoveredMetric.duration}ms</div>
+            <div>Start: \${startTime}</div>
+            <div>End: \${endTime}</div>
+          </div>
+        \`;
+        
+        canvas.style.cursor = 'pointer';
+      } else {
+        // Hide tooltip
+        tooltip.style.display = 'none';
+        canvas.style.cursor = 'default';
+      }
+    });
+    
+    canvas.addEventListener('mouseleave', () => {
+      tooltip.style.display = 'none';
+      timelineTooltip.style.display = 'none';
+      timelinePointer.style.display = 'none';
+      canvas.style.cursor = 'default';
+      mouseGuideX = -1; // Clear mouse guide
+      if (hoveredMetricIndex !== -1) {
+        hoveredMetricIndex = -1;
+        drawChart();
+      }
+    });
+    
+    // Initial draw
+    window.addEventListener('load', drawChart);
+    window.addEventListener('resize', drawChart);
+  </script>
 </body>
 </html>`;
   }
@@ -409,243 +787,9 @@ export class HtmlReporter implements SymphonyReporter {
     return '#f5f5f7'; // Default color for unknown status
   }
 
-  private getLighterStatusColor(status: number): string {
-    if (status >= 200 && status < 300) return '#7dd87f'; // Lighter green for success
-    if (status >= 300 && status < 400) return '#8dd3f7'; // Lighter blue for redirect
-    if (status >= 400 && status < 500) return '#ffb366'; // Lighter orange for client error
-    if (status >= 500) return '#ff7a7a'; // Lighter red for server error
-    return '#f5f5f7'; // Default color
-  }
-
   private formatLocalTime(ts: number): string {
     const d = new Date(ts);
     const ms = d.getMilliseconds().toString().padStart(3, '0');
     return d.toLocaleString().replace(/(\d+:\d+:\d+)/, `$1.${ms}`);
-  }
-
-  private generateGanttChart(metrics: RequestMetrics[]): string {
-    if (metrics.length === 0) {
-      return '<div class="text-gray-400 text-center py-8">No requests to display</div>';
-    }
-
-    // Filter out incomplete requests and sort by start time
-    const completedMetrics = metrics.filter(m => m.endTime && m.endTime > 0 && m.startTime).sort((a, b) => a.startTime - b.startTime);
-
-    if (completedMetrics.length === 0) {
-      return '<div class="text-gray-400 text-center py-8">No completed requests to display</div>';
-    }
-
-    const minTime = Math.min(...completedMetrics.map(m => m.startTime));
-    const maxTime = Math.max(...completedMetrics.map(m => m.endTime));
-    const totalDuration = maxTime - minTime;
-
-    // Chart dimensions - use full available width
-    const leftMargin = 50;
-    const rightMargin = 50;
-    const topMargin = 50; // More space for timeline
-    const bottomMargin = 30;
-    const barHeight = 21; // 70% of original 30px
-    const rowHeight = 28; // Reduced spacing between bars
-    const chartHeight = completedMetrics.length * rowHeight + 80; // Adjusted for new dimensions
-    const previewHeight = Math.ceil(2.5 * rowHeight) + 80; // Height for 2.5 bars preview
-
-    // Use 100% width, will be constrained by container
-    const chartWidth = 1000; // Base width for calculations
-    const availableWidth = chartWidth - leftMargin - rightMargin;
-
-    // Generate time scale markers
-    const timeMarkers = [];
-    const markerCount = 10;
-    for (let i = 0; i <= markerCount; i++) {
-      const time = minTime + (totalDuration * i / markerCount);
-      const x = leftMargin + (availableWidth * i / markerCount);
-      timeMarkers.push({ time, x, label: `+${Math.round((time - minTime))}ms` });
-    }
-
-    // Generate request bars
-    const requestBars = completedMetrics.map((metric, index) => {
-      const startX = leftMargin + ((metric.startTime - minTime) / totalDuration) * availableWidth;
-      const width = ((metric.endTime - metric.startTime) / totalDuration) * availableWidth;
-      const y = topMargin + index * rowHeight;
-      const color = this.getLighterStatusColor(metric.status);
-
-      return {
-        x: startX,
-        y,
-        width: Math.max(width, 2), // Minimum 2px width for visibility
-        height: barHeight,
-        color,
-        metric,
-        index
-      };
-    });
-
-    return `
-      <div id="gantt-container" style="position: relative; width: 100%; background: #1a202c; border-radius: 8px; overflow: hidden; min-width: 100%;">
-        <!-- Fixed Timeline Header -->
-        <div style="position: relative; width: 100%; height: 40px; background: #1a202c; border-bottom: 1px solid #374151;">
-          <svg width="100%" height="40" viewBox="0 0 ${chartWidth} 40" style="width: 100%; height: 100%;">
-            <!-- Time axis labels -->
-            ${timeMarkers.map(marker => `
-              <text x="${marker.x}" y="25" fill="#9CA3AF" font-size="12" text-anchor="middle">
-                ${marker.label}
-              </text>
-            `).join('')}
-            <!-- Start guideline (yellow) -->
-            <line x1="${leftMargin}" y1="0" x2="${leftMargin}" y2="40" 
-                  stroke="#fbbf24" stroke-width="2" opacity="0.8"/>
-            <!-- End guideline (blue) -->
-            <line x1="${leftMargin + availableWidth}" y1="0" x2="${leftMargin + availableWidth}" y2="40" 
-                  stroke="#3b82f6" stroke-width="2" opacity="0.8"/>
-          </svg>
-        </div>
-        
-        <!-- Chart Content -->
-        <div id="gantt-chart-content" style="position: relative; width: 100%; height: ${previewHeight}px; overflow: hidden; transition: height 0.3s ease;">
-          <svg width="100%" height="${chartHeight}" viewBox="0 0 ${chartWidth} ${chartHeight}" style="width: 100%;">
-            <!-- Background grid lines -->
-            ${timeMarkers.map(marker => `
-              <line x1="${marker.x}" y1="0" x2="${marker.x}" y2="${chartHeight}" 
-                    stroke="#374151" stroke-width="1" opacity="0.3"/>
-            `).join('')}
-            
-            <!-- Start guideline (yellow) -->
-            <line x1="${leftMargin}" y1="0" x2="${leftMargin}" y2="${chartHeight}" 
-                  stroke="#fbbf24" stroke-width="2" opacity="0.8"/>
-            <!-- End guideline (blue) -->
-            <line x1="${leftMargin + availableWidth}" y1="0" x2="${leftMargin + availableWidth}" y2="${chartHeight}" 
-                  stroke="#3b82f6" stroke-width="2" opacity="0.8"/>
-            
-            <!-- Request bars -->
-            ${requestBars.map(bar => `
-              <rect x="${bar.x}" y="${bar.y - topMargin + 10}" width="${bar.width}" height="${bar.height}" 
-                    fill="${bar.color}" opacity="0.6" rx="4" 
-                    data-tooltip="true"
-                    data-method="${bar.metric.method}"
-                    data-status="${bar.metric.status}"
-                    data-url="${bar.metric.url}"
-                    data-duration="${bar.metric.duration}"
-                    data-start="${this.formatLocalTime(bar.metric.startTime)}"
-                    data-end="${this.formatLocalTime(bar.metric.endTime)}"
-                    style="cursor: pointer; transition: opacity 0.2s;"
-                    onmouseover="this.style.opacity='0.9'; window.showTooltip(event, this);"
-                    onmouseout="this.style.opacity='0.6'; window.hideTooltip();"
-                    />
-            `).join('')}
-          </svg>
-        </div>
-        
-        <!-- Toggle Button -->
-        <div style="text-align: center; padding: 10px; border-top: 1px solid #374151;">
-          <button id="gantt-toggle" onclick="window.toggleGantt()" 
-                  style="background: #374151; color: #e5e7eb; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: background 0.2s;">
-            View Full Timeline
-          </button>
-        </div>
-        
-        <!-- Tooltip -->
-        <div id="gantt-tooltip" style="position: absolute; background: #374151; color: white; padding: 8px 12px; border-radius: 6px; font-size: 12px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-        </div>
-      </div>
-      
-      <script>
-        window.showTooltip = function(event, element) {
-          const tooltip = document.getElementById('gantt-tooltip');
-          if (!tooltip) return;
-          
-          const method = element.getAttribute('data-method');
-          const status = element.getAttribute('data-status');
-          const url = element.getAttribute('data-url');
-          const duration = element.getAttribute('data-duration');
-          const start = element.getAttribute('data-start');
-          const end = element.getAttribute('data-end');
-          
-          tooltip.innerHTML = 
-            '<div><strong>' + method + ' ' + url + '</strong></div>' +
-            '<div>Status: ' + status + '</div>' +
-            '<div>Duration: ' + duration + 'ms</div>' +
-            '<div>Start: ' + start + '</div>' +
-            '<div>End: ' + end + '</div>';
-          
-          // Show tooltip first to get dimensions
-          tooltip.style.opacity = '1';
-          
-          const container = tooltip.parentElement;
-          const containerRect = container.getBoundingClientRect();
-          const tooltipRect = tooltip.getBoundingClientRect();
-          
-          // Calculate position with padding below the bar and edge detection
-          let left = event.clientX - containerRect.left;
-          let top = event.clientY - containerRect.top + 40; // 40px below cursor
-          
-          // Prevent horizontal clipping
-          if (left + tooltipRect.width > containerRect.width) {
-            left = containerRect.width - tooltipRect.width - 10;
-          }
-          if (left < 10) {
-            left = 10;
-          }
-          
-          // Prevent vertical clipping
-          if (top + tooltipRect.height > containerRect.height) {
-            top = event.clientY - containerRect.top - tooltipRect.height - 10; // Show above cursor
-          }
-          if (top < 10) {
-            top = 10;
-          }
-          
-          tooltip.style.left = left + 'px';
-          tooltip.style.top = top + 'px';
-        }
-        
-        window.hideTooltip = function() {
-          const tooltip = document.getElementById('gantt-tooltip');
-          if (tooltip) {
-            tooltip.style.opacity = '0';
-          }
-        }
-        
-        window.toggleGantt = function() {
-          const content = document.getElementById('gantt-chart-content');
-          const button = document.getElementById('gantt-toggle');
-          if (!content || !button) return;
-          
-          const isExpanded = content.style.height !== '${previewHeight}px';
-          
-          if (isExpanded) {
-            // Collapse
-            content.style.height = '${previewHeight}px';
-            button.textContent = 'View Full Timeline';
-            button.style.background = '#374151';
-          } else {
-            // Expand
-            content.style.height = '${chartHeight}px';
-            button.textContent = 'Hide Full Timeline';
-            button.style.background = '#4f46e5';
-          }
-        }
-        
-        // Hover effect for button
-        document.addEventListener('DOMContentLoaded', function() {
-          const button = document.getElementById('gantt-toggle');
-          if (button) {
-            button.addEventListener('mouseenter', function() {
-              if (this.textContent === 'View Full Timeline') {
-                this.style.background = '#4b5563';
-              } else {
-                this.style.background = '#5b21b6';
-              }
-            });
-            button.addEventListener('mouseleave', function() {
-              if (this.textContent === 'View Full Timeline') {
-                this.style.background = '#374151';
-              } else {
-                this.style.background = '#4f46e5';
-              }
-            });
-          }
-        });
-      </script>
-    `;
   }
 } 
