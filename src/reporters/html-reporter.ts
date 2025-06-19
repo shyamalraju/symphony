@@ -360,6 +360,11 @@ export class HtmlReporter implements SymphonyReporter {
       <div class="p-4">
         <canvas id="ganttChart" width="800" height="400" class="w-full border border-gray-700 rounded"></canvas>
         <div id="tooltip" class="absolute bg-gray-800 text-white p-2 rounded shadow-lg text-sm hidden z-10 border border-gray-600"></div>
+        <div class="flex justify-center mt-4">
+          <button id="expandCollapseBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors duration-200">
+            View Full Timeline
+          </button>
+        </div>
       </div>
     </div>
 
@@ -393,12 +398,21 @@ export class HtmlReporter implements SymphonyReporter {
     const ctx = canvas.getContext('2d');
     const tooltip = document.getElementById('tooltip');
     
-    // Set canvas size based on container
+    // Gantt chart expansion state
+    let isExpanded = false;
+    
+    // Set canvas size based on container and expansion state
     function resizeCanvas() {
       const container = canvas.parentElement;
       const rect = container.getBoundingClientRect();
       canvas.width = rect.width - 32; // Account for padding
-      canvas.height = Math.max(300, metrics.length * 40 + 80); // Dynamic height based on request count
+      
+      if (isExpanded) {
+        canvas.height = Math.max(300, metrics.length * 32 + 80); // Full height when expanded
+      } else {
+        // Show approximately 2.5 bars when collapsed (2.5 * 28 spacing + padding)
+        canvas.height = Math.max(200, 2.5 * 32 + 80); // Collapsed height shows ~2.5 bars
+      }
     }
     
     // Request data
@@ -449,9 +463,12 @@ export class HtmlReporter implements SymphonyReporter {
       // Draw time axes (top and bottom)
       drawTimeAxis();
       
-      // Draw request bars
+      // Draw request bars (only visible ones when collapsed)
       metrics.forEach((metric, index) => {
-        drawRequestBar(metric, index, index === hoveredMetricIndex);
+        // In collapsed mode, only draw first few bars that fit in the visible area
+        if (isExpanded || index < 3) { // Show first 3 bars when collapsed (covers ~2.5 visible)
+          drawRequestBar(metric, index, index === hoveredMetricIndex);
+        }
       });
       
       // Draw mouse guide line
@@ -505,12 +522,12 @@ export class HtmlReporter implements SymphonyReporter {
         
         // Draw bottom timeline labels
         ctx.fillStyle = '#e2e8f0';
-        ctx.font = '11px Arial';
+        ctx.font = '13px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(timeStr, x, bottomY + 18);
+        ctx.fillText(timeStr, x, bottomY + 20);
         
         // Draw top timeline labels
-        ctx.fillText(timeStr, x, topY - 12);
+        ctx.fillText(timeStr, x, topY - 15);
       }
       
       // Draw test start guideline (yellow)
@@ -554,8 +571,8 @@ export class HtmlReporter implements SymphonyReporter {
     }
     
     function drawRequestBar(metric, index, isHovered = false) {
-      const y = chartPadding.top + (index * 35) + 10;
-      const barHeight = 25;
+      const y = chartPadding.top + (index * 28) + 10; // Reduced spacing from 35 to 28
+      const barHeight = 20; // Increased from 18 to 20
       const borderRadius = 4;
       
       // Calculate bar position and width
@@ -566,8 +583,8 @@ export class HtmlReporter implements SymphonyReporter {
       // Get color based on HTTP method
       const color = methodColors[metric.method] || '#6b7280';
       
-      // Adjust opacity based on hover state (dialed back by 5%)
-      const baseOpacity = isHovered ? 'FF' : '8A'; // 100% opacity on hover, 65% normally (5% less opaque)
+      // Adjust opacity based on hover state
+      const baseOpacity = isHovered ? 'FF' : 'A6'; // 100% opacity on hover, 65% normally (increased from 54% to 65%)
       
       // Draw rounded bar background
       ctx.fillStyle = color + baseOpacity;
@@ -626,7 +643,7 @@ export class HtmlReporter implements SymphonyReporter {
     // Create timeline tooltip
     const timelineTooltip = document.createElement('div');
     timelineTooltip.style.position = 'absolute';
-    timelineTooltip.style.background = '#1f2937'; // bg-800
+    timelineTooltip.style.background = 'linear-gradient(135deg, #4b5563, #374151)'; // Dark gray gradient from lighter to darker
     timelineTooltip.style.color = '#ffffff'; // white text
     timelineTooltip.style.padding = '8px 12px';
     timelineTooltip.style.borderRadius = '6px';
@@ -658,6 +675,14 @@ export class HtmlReporter implements SymphonyReporter {
     document.body.appendChild(timelineTooltip);
     document.body.appendChild(timelinePointer);
     
+    // Get expand/collapse button and add click handler
+    const expandCollapseBtn = document.getElementById('expandCollapseBtn');
+    expandCollapseBtn.addEventListener('click', () => {
+      isExpanded = !isExpanded;
+      expandCollapseBtn.textContent = isExpanded ? 'Collapse Timeline' : 'View Full Timeline';
+      drawChart(); // Redraw with new size
+    });
+    
     canvas.addEventListener('mousemove', (e) => {
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
@@ -669,9 +694,10 @@ export class HtmlReporter implements SymphonyReporter {
       let hoveredMetric = null;
       let newHoveredIndex = -1;
       
-      // Check if mouse is over any request bar
+      // Check if mouse is over any visible request bar
       metrics.forEach((metric, index) => {
-        if (metric._barInfo) {
+        // Only check hover for visible bars
+        if ((isExpanded || index < 3) && metric._barInfo) {
           const { x, y, width, height } = metric._barInfo;
           if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
             hoveredMetric = metric;
@@ -680,8 +706,8 @@ export class HtmlReporter implements SymphonyReporter {
         }
       });
       
-      // Show timeline tooltip when hovering over a gantt bar
-      if (hoveredMetric && mouseX >= chartPadding.left && mouseX <= chartPadding.left + chartWidth) {
+      // Show timeline tooltip only when hovering over a Gantt bar
+      if (hoveredMetric && hoveredMetric._barInfo) {
         // Calculate the time at mouse position with high precision
         const relativeTime = ((mouseX - chartPadding.left) / chartWidth) * timeRange;
         const absoluteTime = minTime + relativeTime;
@@ -690,10 +716,14 @@ export class HtmlReporter implements SymphonyReporter {
         const relativeDuration = Math.round(relativeTime);
         const relativeDurationStr = \`+\${relativeDuration}ms\`;
         
-        // Use same logic as formatLocalTime method for consistent precision
-        const d = new Date(absoluteTime);
-        const ms = d.getMilliseconds().toString().padStart(3, '0');
-        const formattedAbsoluteTime = d.toLocaleString().replace(/(\d+:\d+:\d+)/, \`$1.$\{ms}\`);
+        // Format absolute time with millisecond precision (time only, no date)
+        const formatTimeWithMs = (ts) => {
+          const d = new Date(ts);
+          const ms = d.getMilliseconds().toString().padStart(3, '0');
+          return d.toLocaleTimeString().replace(/(\\d+:\\d+:\\d+)/, \`$1.\${ms}\`);
+        };
+        
+        const formattedAbsoluteTime = formatTimeWithMs(absoluteTime);
         
         // Combine both formats
         const combinedTime = \`\${relativeDurationStr}, \${formattedAbsoluteTime}\`;
@@ -703,15 +733,16 @@ export class HtmlReporter implements SymphonyReporter {
         timelinePointer.style.display = 'block';
         timelineTooltip.textContent = combinedTime;
         
-        // Position pointer just above the gantt bar
-        const pointerTop = rect.top + hoveredMetric._barInfo.y - 25; // 25px above bar
+        // Position pointer with small padding above the hovered bar
+        const pointerTop = rect.top + hoveredMetric._barInfo.y - 18; // Position with 2px padding above bar top
         timelinePointer.style.left = e.pageX + 'px';
         timelinePointer.style.top = (pointerTop + window.scrollY) + 'px';
         
-        // Position tooltip above the pointer
-        const tooltipTop = rect.top + hoveredMetric._barInfo.y - 60; // 60px above bar (35px above pointer)
-        timelineTooltip.style.left = (e.pageX - 60) + 'px'; // Center on mouse
-        timelineTooltip.style.top = (tooltipTop + window.scrollY) + 'px';
+        // Center tooltip above the pointer
+        const tooltipWidth = timelineTooltip.offsetWidth || 150; // Estimate width if not measured
+        const tooltipTop = pointerTop - 35 + window.scrollY; // 35px above pointer
+        timelineTooltip.style.left = (e.pageX - tooltipWidth / 2) + 'px'; // Center on mouse
+        timelineTooltip.style.top = tooltipTop + 'px';
       } else {
         timelineTooltip.style.display = 'none';
         timelinePointer.style.display = 'none';
@@ -731,8 +762,15 @@ export class HtmlReporter implements SymphonyReporter {
         tooltip.style.left = (e.pageX + 10) + 'px';
         tooltip.style.top = (barBottom + window.scrollY) + 'px';
         
-        const startTime = new Date(hoveredMetric.startTime).toLocaleTimeString();
-        const endTime = new Date(hoveredMetric.endTime).toLocaleTimeString();
+        // Format timestamps with millisecond precision (same as formatLocalTime method)
+        const formatTimeWithMs = (ts) => {
+          const d = new Date(ts);
+          const ms = d.getMilliseconds().toString().padStart(3, '0');
+          return d.toLocaleString().replace(/(\\d+:\\d+:\\d+)/, \`$1.\${ms}\`);
+        };
+        
+        const startTime = formatTimeWithMs(hoveredMetric.startTime);
+        const endTime = formatTimeWithMs(hoveredMetric.endTime);
         tooltip.innerHTML = \`
           <div class="font-bold">\${hoveredMetric.method} \${hoveredMetric.status}</div>
           <div class="mt-1">\${hoveredMetric.url}</div>
