@@ -354,7 +354,7 @@ export class HtmlReporter implements SymphonyReporter {
     </div>
 
     <div class="bg-gray-900 border border-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-      <div class="border-b border-gray-800 p-4">
+      <div id="timelineHeader" class="border-b border-gray-800 p-4">
         <h3 class="text-xl font-bold text-gray-300">Request Timeline</h3>
       </div>
       <div class="p-4">
@@ -365,6 +365,11 @@ export class HtmlReporter implements SymphonyReporter {
             View Full Timeline
           </button>
         </div>
+        <div class="flex justify-center mt-2">
+          <div id="chevronIndicator" class="text-blue-400 text-lg animate-pulse transition-transform duration-300" style="text-shadow: 0 0 8px #3b82f6;">
+            ⌄
+          </div>
+        </div>
       </div>
     </div>
 
@@ -372,6 +377,7 @@ export class HtmlReporter implements SymphonyReporter {
       <div class="border-b border-gray-800 p-4">
         <h3 class="text-xl font-bold text-gray-300">Request Details</h3>
       </div>
+      
       <div class="overflow-x-auto">
         <table class="w-full">
           <thead>
@@ -408,10 +414,10 @@ export class HtmlReporter implements SymphonyReporter {
       canvas.width = rect.width - 32; // Account for padding
       
       if (isExpanded) {
-        canvas.height = Math.max(300, metrics.length * 32 + 80); // Full height when expanded
+        canvas.height = Math.max(300, metrics.length * 30 + 80); // Updated for new spacing (26 + 4 padding)
       } else {
-        // Show approximately 2.5 bars when collapsed (2.5 * 28 spacing + padding)
-        canvas.height = Math.max(200, 2.5 * 32 + 80); // Collapsed height shows ~2.5 bars
+        // Show approximately 5 bars when collapsed (doubled from 2.5)
+        canvas.height = Math.max(200, 5 * 30 + 80); // Updated for new spacing
       }
     }
     
@@ -466,10 +472,19 @@ export class HtmlReporter implements SymphonyReporter {
       // Draw request bars (only visible ones when collapsed)
       metrics.forEach((metric, index) => {
         // In collapsed mode, only draw first few bars that fit in the visible area
-        if (isExpanded || index < 3) { // Show first 3 bars when collapsed (covers ~2.5 visible)
+        if (isExpanded || index < 6) { // Show first 6 bars when collapsed (so 6th bar is partially visible)
           drawRequestBar(metric, index, index === hoveredMetricIndex);
         }
       });
+      
+      // Draw gradient overlay in collapsed mode to indicate more content
+      if (!isExpanded) {
+        const gradient = ctx.createLinearGradient(0, chartPadding.top, 0, canvas.height);
+        gradient.addColorStop(0, 'rgba(26, 32, 44, 0.05)'); // 5% opacity at top
+        gradient.addColorStop(1, 'rgba(26, 32, 44, 0.8)'); // 80% opacity at bottom
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
       
       // Draw mouse guide line
       drawMouseGuide();
@@ -482,17 +497,24 @@ export class HtmlReporter implements SymphonyReporter {
       // Draw timeline background (transparent strip)
       ctx.fillStyle = 'rgba(74, 85, 104, 0.1)'; // Very transparent background
       ctx.fillRect(chartPadding.left, topY - 25, chartWidth, 35); // Top timeline background
-      ctx.fillRect(chartPadding.left, bottomY, chartWidth, 35); // Bottom timeline background
+      // Only draw bottom timeline background when expanded
+      if (isExpanded) {
+        ctx.fillRect(chartPadding.left, bottomY, chartWidth, 35); // Bottom timeline background
+      }
       
-      // Draw bottom axis line
-      ctx.strokeStyle = '#4a5568';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(chartPadding.left, bottomY);
-      ctx.lineTo(chartPadding.left + chartWidth, bottomY);
-      ctx.stroke();
+      // Draw bottom axis line (only when expanded)
+      if (isExpanded) {
+        ctx.strokeStyle = '#4a5568';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(chartPadding.left, bottomY);
+        ctx.lineTo(chartPadding.left + chartWidth, bottomY);
+        ctx.stroke();
+      }
       
       // Draw top axis line
+      ctx.strokeStyle = '#4a5568';
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(chartPadding.left, topY);
       ctx.lineTo(chartPadding.left + chartWidth, topY);
@@ -503,15 +525,19 @@ export class HtmlReporter implements SymphonyReporter {
         const relativeTime = (timeRange * i / numTicks);
         const x = chartPadding.left + (chartWidth * i / numTicks);
         
-        // Draw bottom ticks
-        ctx.strokeStyle = '#4a5568';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x, bottomY);
-        ctx.lineTo(x, bottomY + 5);
-        ctx.stroke();
+        // Draw bottom ticks (only when expanded)
+        if (isExpanded) {
+          ctx.strokeStyle = '#4a5568';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x, bottomY);
+          ctx.lineTo(x, bottomY + 5);
+          ctx.stroke();
+        }
         
         // Draw top ticks
+        ctx.strokeStyle = '#4a5568';
+        ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, topY);
         ctx.lineTo(x, topY - 5);
@@ -520,13 +546,18 @@ export class HtmlReporter implements SymphonyReporter {
         // Create timeline labels (simple text, no background boxes)
         const timeStr = '+' + Math.round(relativeTime) + 'ms';
         
-        // Draw bottom timeline labels
+        // Draw bottom timeline labels (only when expanded)
+        if (isExpanded) {
+          ctx.fillStyle = '#e2e8f0';
+          ctx.font = '13px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(timeStr, x, bottomY + 20);
+        }
+        
+        // Draw top timeline labels
         ctx.fillStyle = '#e2e8f0';
         ctx.font = '13px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(timeStr, x, bottomY + 20);
-        
-        // Draw top timeline labels
         ctx.fillText(timeStr, x, topY - 15);
       }
       
@@ -571,8 +602,8 @@ export class HtmlReporter implements SymphonyReporter {
     }
     
     function drawRequestBar(metric, index, isHovered = false) {
-      const y = chartPadding.top + (index * 28) + 10; // Reduced spacing from 35 to 28
-      const barHeight = 20; // Increased from 18 to 20
+      const y = chartPadding.top + (index * 26) + 10; // Reduced spacing from 28 to 26
+      const barHeight = 16; // Reduced from 20 to 16 (80% of original)
       const borderRadius = 4;
       
       // Calculate bar position and width
@@ -677,9 +708,15 @@ export class HtmlReporter implements SymphonyReporter {
     
     // Get expand/collapse button and add click handler
     const expandCollapseBtn = document.getElementById('expandCollapseBtn');
+    const chevronIndicator = document.getElementById('chevronIndicator');
+    const timelineHeader = document.getElementById('timelineHeader');
     expandCollapseBtn.addEventListener('click', () => {
       isExpanded = !isExpanded;
       expandCollapseBtn.textContent = isExpanded ? 'Collapse Timeline' : 'View Full Timeline';
+      // Rotate chevron 180 degrees when expanded
+      chevronIndicator.style.transform = isExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+      // Hide/show timeline header border based on expansion state
+      timelineHeader.style.borderBottom = isExpanded ? '1px solid #374151' : 'none';
       drawChart(); // Redraw with new size
     });
     
@@ -697,7 +734,7 @@ export class HtmlReporter implements SymphonyReporter {
       // Check if mouse is over any visible request bar
       metrics.forEach((metric, index) => {
         // Only check hover for visible bars
-        if ((isExpanded || index < 3) && metric._barInfo) {
+        if ((isExpanded || index < 6) && metric._barInfo) {
           const { x, y, width, height } = metric._barInfo;
           if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
             hoveredMetric = metric;
@@ -719,7 +756,7 @@ export class HtmlReporter implements SymphonyReporter {
         // Format absolute time with millisecond precision (time only, no date)
         const formatTimeWithMs = (ts) => {
           const d = new Date(ts);
-          const ms = d.getMilliseconds().toString().padStart(3, '0');
+        const ms = d.getMilliseconds().toString().padStart(3, '0');
           return d.toLocaleTimeString().replace(/(\\d+:\\d+:\\d+)/, \`$1.\${ms}\`);
         };
         
@@ -802,7 +839,13 @@ export class HtmlReporter implements SymphonyReporter {
     });
     
     // Initial draw
-    window.addEventListener('load', drawChart);
+    window.addEventListener('load', () => {
+      // Set initial border state for collapsed view
+      if (timelineHeader) {
+        timelineHeader.style.borderBottom = 'none'; // Start collapsed
+      }
+      drawChart();
+    });
     window.addEventListener('resize', drawChart);
   </script>
 </body>
