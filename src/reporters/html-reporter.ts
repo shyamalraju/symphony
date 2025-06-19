@@ -567,7 +567,9 @@ export class HtmlReporter implements SymphonyReporter {
       ctx.setLineDash([5, 5]);
       ctx.beginPath();
       ctx.moveTo(chartPadding.left, chartPadding.top);
-      ctx.lineTo(chartPadding.left, chartPadding.top + chartHeight);
+      // Extend to full canvas height in collapsed mode, or chart height in expanded mode
+      const guideLineEndY = isExpanded ? chartPadding.top + chartHeight : canvas.height;
+      ctx.lineTo(chartPadding.left, guideLineEndY);
       ctx.stroke();
       
       // Draw test end guideline (blue)
@@ -576,7 +578,7 @@ export class HtmlReporter implements SymphonyReporter {
       ctx.setLineDash([5, 5]);
       ctx.beginPath();
       ctx.moveTo(chartPadding.left + chartWidth, chartPadding.top);
-      ctx.lineTo(chartPadding.left + chartWidth, chartPadding.top + chartHeight);
+      ctx.lineTo(chartPadding.left + chartWidth, guideLineEndY);
       ctx.stroke();
       
       // Reset line dash for other drawings
@@ -666,7 +668,9 @@ export class HtmlReporter implements SymphonyReporter {
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(mouseGuideX, chartPadding.top);
-        ctx.lineTo(mouseGuideX, chartPadding.top + chartHeight);
+        // Extend to full canvas height in collapsed mode, or chart height in expanded mode
+        const mouseGuideEndY = isExpanded ? chartPadding.top + chartHeight : canvas.height;
+        ctx.lineTo(mouseGuideX, mouseGuideEndY);
         ctx.stroke();
       }
     }
